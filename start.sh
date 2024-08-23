@@ -8,8 +8,9 @@ CURRENTDIR=$(pwd)
 CONFIG_FILE="config.cfg"
 NGINX_CONFIG=""
 # MySQL connection details
-MYSQL_USER="root"
-MYSQL_PASSWORD="rootpassword"
+MYSQL_USER="user"
+MYSQL_DATABASE="dbname"
+MYSQL_PASSWORD="Sj309jSKljd390jdf"
 
 
 die_with_error() {
@@ -316,8 +317,7 @@ hashed_password=$(htpasswd -bnBC 10 "" "$adminpassword" | tr -d ':\n')
 if [ -d "$project_dir" ]; then
   echo "Directory $project_dir exists"
 else
-  echo "ERROR: Directory $project_dir does not exist"
-  exit 1
+  mkdir -p $project_dir
 fi
 
 
@@ -398,18 +398,23 @@ if [ "$(docker ps -a -q -f name=^/superproxy-mysql)" ]; then
 else
     echo "Container superproxy-mysql does not exist. Starting mysql..."
     docker run -d --rm --name=superproxy-mysql --network superproxy \
-      -e MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD \
-      -e MYSQL_DATABASE=dbname \
+      -e MYSQL_ROOT_PASSWORD=rootpassword \
+      -e MYSQL_DATABASE=$MYSQL_DATABASE \
       -e MYSQL_USER=$MYSQL_USER \
       -e MYSQL_PASSWORD=$MYSQL_PASSWORD \
       -v $project_dir/mysql:/var/lib/mysql \
-    anticaptcha/superproxy-mysql
+    mysql:8.0
+    until docker exec -i superproxy-mysql mysqladmin ping -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
+      echo "Waiting for MySQL container to be ready..."
+      sleep 2
+    done
+    sleep 5
 fi
-until docker exec -i superproxy-mysql mysqladmin ping -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
-  echo "Waiting for MySQL container to be ready..."
-  sleep 2
-done
 
+docker pull anticaptcha/superproxy-backend:latest
+docker pull anticaptcha/superproxy-frontend:latest
+
+docker exec -i superproxy-mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -D dbname -se "CREATE DATABASE IF NOT EXISTS $MYSQL_DATABASE"
 docker exec -i superproxy-mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -D dbname -se "CREATE TABLE IF NOT EXISTS users (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     key(id),
@@ -442,7 +447,6 @@ if [ "$(docker ps -a -q -f name=^/superproxy-api)" ]; then
     echo "Container superproxy-api exists."
 else
   mkdir -p "$project_dir/configs"
-  docker pull anticaptcha/superproxy-backend:latest
   docker run --rm -d --name=superproxy-api --network superproxy \
    -e DB_HOST=superproxy-mysql \
    -e DB_PORT=3306 \
@@ -457,7 +461,6 @@ fi
 if [ "$(docker ps -a -q -f name=^/superproxy-frontend)" ]; then
     echo "Container superproxy-frontend exists."
 else
-  docker pull anticaptcha/superproxy-frontend:latest
   docker run --rm -d --name=superproxy-frontend --network superproxy anticaptcha/superproxy-frontend:latest || die_with_error "Could not start superproxy-frontend"
 fi
 
