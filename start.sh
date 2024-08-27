@@ -1,7 +1,7 @@
 #!/bin/bash
 
 apt update
-apt install -y docker.io apache2-utils
+apt install -y docker.io docker-compose apache2-utils
 
 CURRENTDIR=$(pwd)
 
@@ -354,7 +354,6 @@ if [ "$usecertificate" = "y" ]; then
       exit 1
   fi
 
-  nginxports="-p 80:80 -p 443:443"
   cp -f $certificatebundle "$project_dir/nginx/bundle.crt"
   cp -f $certificatekey "$project_dir/nginx/ssl.crt"
 cat <<EOL > "$project_dir/nginx/Dockerfile"
@@ -371,7 +370,6 @@ CMD ["nginx", "-g", "daemon off;"]
 EOL
   write_nginx_config_ssl
 else
-  nginxports="-p 80:80"
   cat <<EOL > "$project_dir/nginx/Dockerfile"
 FROM nginx:stable-alpine
 
@@ -384,20 +382,12 @@ EOL
   write_nginx_config_no_ssl
 fi
 
-# Checking Docker network
-if ! docker network ls --format "{{.Name}}" | grep -q "^superproxy$"; then
-  echo "Docker network 'superproxy' does not exist. Creating it..."
-  docker network create superproxy
-else
-  echo "Docker network superproxy already exists."
-fi
-
 # Starting MySQL container, ensuring database and admin user
 if [ "$(docker ps -a -q -f name=^/superproxy-mysql)" ]; then
     echo "Container superproxy-mysql exists."
 else
     echo "Container superproxy-mysql does not exist. Starting mysql..."
-    docker run -d --rm --name=superproxy-mysql --network superproxy \
+    docker run -d --rm --name=superproxy-mysql \
       -e MYSQL_ROOT_PASSWORD=rootpassword \
       -e MYSQL_DATABASE=$MYSQL_DATABASE \
       -e MYSQL_USER=$MYSQL_USER \
@@ -441,49 +431,84 @@ if [ "$user_exists" -eq 0 ]; then
 else
   echo "Admin user with email $adminemail already exists."
 fi
+docker stop superproxy-mysql
 
-# Starting backend container
-if [ "$(docker ps -a -q -f name=^/superproxy-api)" ]; then
-    echo "Container superproxy-api exists."
-else
-  mkdir -p "$project_dir/configs"
-  docker run --rm -d --name=superproxy-api --network superproxy \
-   -e DB_HOST=superproxy-mysql \
-   -e DB_PORT=3306 \
-   -e DB_USER=$MYSQL_USER \
-   -e DB_PASSWORD=$MYSQL_PASSWORD \
-   -e DB_NAME=dbname \
-   -v $project_dir/configs:/app/configs \
-   anticaptcha/superproxy-backend:latest || die_with_error "Could not start superproxy-backend"
-fi
-
-# Starting frontend container
-if [ "$(docker ps -a -q -f name=^/superproxy-frontend)" ]; then
-    echo "Container superproxy-frontend exists."
-else
-  docker run --rm -d --name=superproxy-frontend --network superproxy anticaptcha/superproxy-frontend:latest || die_with_error "Could not start superproxy-frontend"
-fi
-
-if [ "$(docker ps -a -q -f name=^/superproxy-nginx)" ]; then
-  echo "Container superproxy-nginx exists."
-else
-  # Building NGINX image
-  cd "$project_dir/nginx"
-  docker build -t superproxy-nginx . || die_with_error "Could not build nginx"
-
-  # Starting main NGINX server
-  docker run --name superproxy-nginx --network superproxy -d --rm \
-   $nginxports \
-   superproxy-nginx || die_with_error "Could not start NGINX"
-fi
 
 
 cat <<EOL > "$project_dir/update.sh"
 docker stop superproxy-api superproxy-frontend superproxy-nginx
-source start.sh
+docker pull anticaptcha/superproxy-backend:latest
+docker pull anticaptcha/superproxy-frontend:latest
+docker-compose up -d
 EOL
 chmod a+x "$project_dir/update.sh"
+
+cat <<EOL > "$project_dir/docker-compose.yaml"
+version: "3.3"
+
+services:
+  superproxy-mysql:
+    image: mysql:8.0
+    container_name: superproxy-mysql
+    restart: always
+    networks:
+      - superproxy
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=dbname
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=Sj309jSKljd390jdf
+    volumes:
+      - $project_dir/mysql:/var/lib/mysql
+
+  superproxy-api:
+    image: anticaptcha/superproxy-backend:latest
+    container_name: superproxy-api
+    restart: always
+    networks:
+      - superproxy
+    environment:
+      - DB_HOST=superproxy-mysql
+      - DB_PORT=3306
+      - DB_USER=user
+      - DB_PASSWORD=Sj309jSKljd390jdf
+      - DB_NAME=dbname
+    depends_on:
+      - superproxy-mysql
+    volumes:
+      - $project_dir/configs:/app/configs
+
+  superproxy-frontend:
+    image: anticaptcha/superproxy-frontend:latest
+    container_name: superproxy-frontend
+    restart: always
+    networks:
+      - superproxy
+
+  superproxy-nginx:
+    image: superproxy-nginx
+    container_name: superproxy-nginx
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    networks:
+      - superproxy
+
+networks:
+  superproxy:
+    driver: bridge
+EOL
+
+echo "starting via docker-compose"
+cd $project_dir && docker-compose up -d || die_with_error "Could not start services"
+
+echo "Waiting 15 seconds..."
+sleep 15
 echo ""
 echo "Superproxy successfully started"
 echo ""
-echo "To update the project run $project_dir/update.sh"
+echo "To update the project run '$project_dir/update.sh'"
+echo "To stop the project run 'cd $project_dir && docker-compose down'"
+echo "To run the project again run 'cd $project_dir && docker-compose up -d'"
+

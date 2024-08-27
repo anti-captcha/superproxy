@@ -1,0 +1,55 @@
+version: "3.3"
+
+services:
+  superproxy-mysql:
+    image: mysql:8.0
+    container_name: superproxy-mysql
+    restart: always
+    networks:
+      - superproxy
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=dbname
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=Sj309jSKljd390jdf
+    volumes:
+      - PROJECTDIRVALUE/mysql:/var/lib/mysql
+
+  superproxy-api:
+    image: anticaptcha/superproxy-backend:latest
+    container_name: superproxy-api
+    restart: always
+    networks:
+      - superproxy
+    environment:
+      - DB_HOST=superproxy-mysql
+      - DB_PORT=3306
+      - DB_USER=user
+      - DB_PASSWORD=Sj309jSKljd390jdf
+      - DB_NAME=dbname
+    depends_on:
+      - superproxy-mysql
+    volumes:
+      - PROJECTDIRVALUE/configs:/app/configs
+
+  superproxy-frontend:
+    image: anticaptcha/superproxy-frontend:latest
+    container_name: superproxy-frontend
+    restart: always
+    networks:
+      - superproxy
+
+  superproxy-nginx:
+    image: superproxy-nginx
+    container_name: superproxy-nginx
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    networks:
+      - superproxy
+
+networks:
+  superproxy:
+    driver: bridge
+
