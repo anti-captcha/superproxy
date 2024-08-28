@@ -1,7 +1,5 @@
 #!/bin/bash
 
-apt update
-apt install -y docker.io docker-compose apache2-utils
 
 CURRENTDIR=$(pwd)
 
@@ -12,14 +10,27 @@ MYSQL_USER="user"
 MYSQL_DATABASE="dbname"
 MYSQL_PASSWORD="Sj309jSKljd390jdf"
 
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'  # No Color (reset)
+
+# Function to print green text
+echogreen() {
+  echo -e "${GREEN}$1${NC}"
+}
+
+# Function to print red text
+echored() {
+  echo -e "${RED}$1${NC}"
+}
 
 die_with_error() {
-  echo $1
+  echored $1
   exit 1
 }
 # Function to prompt for configuration details and save to file
 create_config() {
-  echo "Config file not found. Let's create one."
+  echogreen "Config file not found. Let's create one."
 
   # Prompt the user, suggesting the current directory as the default
   read -p "Enter the path to your project directory [$CURRENTDIR]: " project_dir
@@ -53,7 +64,7 @@ create_config() {
   echo "certificatekey=\"$certificatekey\"" >> $CONFIG_FILE
   echo "certificatebundle=\"$certificatebundle\"" >> $CONFIG_FILE
 
-  echo "Configuration saved to $CONFIG_FILE."
+  echogreen "Configuration saved to $CONFIG_FILE."
 }
 
 #!/bin/bash
@@ -67,12 +78,12 @@ ask_for_file() {
     read -p "$question" file
 
     if [ -f "$file" ]; then
-      echo "File exists: $file"
+      echogreen "File exists: $file"
       absolute_path=$(realpath "$file")
       eval $__resultvar="'$absolute_path'"  # Assign the full file path to the provided variable
       break  # Exit the loop if the file exists
     else
-      echo "File does not exist. Please try again."
+      echored "File does not exist. Please try again."
     fi
   done
 }
@@ -83,7 +94,7 @@ ask_yes_no() {
     case $yn in
         [Yy]* ) return 0;;  # If 'y' or 'Y' is entered, return success
         [Nn]* ) return 1;;  # If 'n' or 'N' is entered, return failure
-        * ) echo "Please answer y or n.";;  # If invalid input, ask again
+        * ) echored "Please answer y or n.";;  # If invalid input, ask again
     esac
   done
 }
@@ -91,8 +102,7 @@ ask_yes_no() {
 
 write_nginx_config_no_ssl() {
   if [ -z "$NGINX_CONFIG" ]; then
-    echo "The nginx config path is empty."
-    exit 1
+    die_with_error "The nginx config path is empty."
   fi
   cat <<EOL > "$NGINX_CONFIG"
 user nginx;
@@ -155,20 +165,19 @@ http {
     server {
         listen 80;
         server_name *.$domain;
-        return 301 https://$domain\$request_uri;
+        return 301 http://$domain\$request_uri;
     }
 
 }
 
 
 EOL
-   echo "wrote nginx config to $NGINX_CONFIG"
+   echogreen "wrote nginx config to $NGINX_CONFIG"
 }
 
 write_nginx_config_ssl() {
   if [ -z "$NGINX_CONFIG" ]; then
-    echo "The nginx config path is empty."
-    exit 1
+    die_with_error "The nginx config path is empty."
   fi
   cat <<EOL > "$NGINX_CONFIG"
 user nginx;
@@ -286,26 +295,36 @@ http {
 
 }
 EOL
-   echo "wrote nginx config to $NGINX_CONFIG"
+   echogreen "wrote nginx config to $NGINX_CONFIG"
 }
+
+
+
+
+
+
+
+echogreen "Checking installation of Docker and password hashing utility"
+apt update
+apt install -y docker.io docker-compose apache2-utils
 
 # Check if config file exists
 if [ -f $CONFIG_FILE ]; then
   # Load the variables from the config file
   source $CONFIG_FILE
-  echo "Config file found. Loaded configuration."
+  echogreen "Config file found. Loaded configuration."
 else
   # Create the config file by asking the user for input
   create_config
 fi
 
 if [ -z "$project_dir" ]; then
-  echo "The project directory variable is empty."
+  echogreen "The project directory variable is empty."
   create_config
 fi
 
 # Further script actions can use the loaded or created variables
-echo "Running script with the following configuration:"
+echogreen "Running script with the following configuration:"
 echo "Project Directory: $project_dir"
 echo "Email: $adminemail"
 echo "Password: $adminpassword"
@@ -315,7 +334,7 @@ echo "Certificate key: $certificatekey"
 hashed_password=$(htpasswd -bnBC 10 "" "$adminpassword" | tr -d ':\n')
 
 if [ -d "$project_dir" ]; then
-  echo "Directory $project_dir exists"
+  echogreen "Directory $project_dir exists"
 else
   mkdir -p $project_dir
 fi
@@ -330,15 +349,15 @@ if [ "$usecertificate" = "y" ]; then
 
   # Check if the supposed private key actually contains a private key
   if ! grep -q "BEGIN .*PRIVATE KEY" "$certificatekey"; then
-      echo "ERROR: The file $certificatekey does not appear to be a private key."
-      echo "Possible cause: The files are swapped or the wrong file was provided."
+      echored "ERROR: The file $certificatekey does not appear to be a private key."
+      echored "Possible cause: The files are swapped or the wrong file was provided."
       exit 1
   fi
 
   # Check if the supposed certificate actually contains a certificate
   if ! grep -q "BEGIN CERTIFICATE" "$certificatebundle"; then
-      echo "ERROR: The file $certificatebundle does not appear to be a certificate."
-      echo "Possible cause: The files are swapped or the wrong file was provided."
+      echored "ERROR: The file $certificatebundle does not appear to be a certificate."
+      echored "Possible cause: The files are swapped or the wrong file was provided."
       exit 1
   fi
 
@@ -348,10 +367,9 @@ if [ "$usecertificate" = "y" ]; then
 
   # Compare the moduli
   if [ "$key_modulus" == "$cert_modulus" ]; then
-      echo "The private key and certificate match."
+      echogreen "The private key and certificate match."
   else
-      echo "ERROR: The private key and/or certificate are invalid."
-      exit 1
+      die_with_error "ERROR: The private key and/or certificate are invalid."
   fi
 
   cp -f $certificatebundle "$project_dir/nginx/bundle.crt"
@@ -368,6 +386,8 @@ EXPOSE 443
 
 CMD ["nginx", "-g", "daemon off;"]
 EOL
+  projecturl="https://$domain/"
+  projectapi="https://api.$domain/"
   write_nginx_config_ssl
 else
   cat <<EOL > "$project_dir/nginx/Dockerfile"
@@ -379,14 +399,45 @@ EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
 EOL
+  projecturl="http://$domain/"
+  projectapi="http://api.$domain/"
   write_nginx_config_no_ssl
+fi
+
+if [ -f "$project_dir/configs/system.json" ]; then
+  echogreen "backend's config already exists, not touching"
+else
+  mkdir -p "$project_dir/configs"
+  cat <<EOL > "$project_dir/configs/system.json"
+{
+    "anticaptchaApikey": "",
+    "anticaptchaBalance": 0,
+    "anticaptchaBalanceLastCheck": 0,
+    "isRegistrationAllowed": true,
+    "recaptchaV3Sitekey": "",
+    "recaptchaV3Secret": "",
+    "recaptchaV3MinScore": 0.1,
+    "elasticMailKey": "",
+    "emailFrom": "",
+    "projectName": "",
+    "projectURL": "$projecturl",
+    "projectLogo": "",
+    "landingURL": "",
+    "contacts": "",
+    "companyName": "",
+    "APIURL": "$projectapi",
+    "currencyRatio": 1,
+    "currencySymbol": "$",
+    "financeSecret": ""
+}
+EOL
 fi
 
 # Starting MySQL container, ensuring database and admin user
 if [ "$(docker ps -a -q -f name=^/superproxy-mysql)" ]; then
-    echo "Container superproxy-mysql exists."
+    echogreen "Container superproxy-mysql exists."
 else
-    echo "Container superproxy-mysql does not exist. Starting mysql..."
+    echogreen "Container superproxy-mysql does not exist. Starting mysql..."
     docker run -d --rm --name=superproxy-mysql \
       -e MYSQL_ROOT_PASSWORD=rootpassword \
       -e MYSQL_DATABASE=$MYSQL_DATABASE \
@@ -395,7 +446,7 @@ else
       -v $project_dir/mysql:/var/lib/mysql \
     mysql:8.0
     until docker exec -i superproxy-mysql mysqladmin ping -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
-      echo "Waiting for MySQL container to be ready..."
+      echogreen "Waiting for MySQL container to be ready..."
       sleep 2
     done
     sleep 5
@@ -421,22 +472,27 @@ user_exists=$(docker exec -i superproxy-mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PA
 
 
 if [ "$user_exists" -eq 0 ]; then
-  echo "User with email $adminemail does not exist. Inserting user..."
+  echogreen "User with email $adminemail does not exist. Inserting user..."
   # Insert the user
   random_string=$(head -c 256 /dev/urandom | base64)
   apikey=$(echo $random_string | md5sum | awk '{print $1}')
   utc_seconds=$(date -u +%s)
   docker exec -i superproxy-mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -D dbname -e "INSERT INTO users (email, password_hash, apikey, money, regdate, is_frozen,is_admin) VALUES ('$adminemail', '$hashed_password','$apikey',0,'$utc_seconds',0,1);"
-  echo "Admin user inserted successfully."
+  echogreen "Admin user inserted successfully."
 else
-  echo "Admin user with email $adminemail already exists."
+  echogreen "Admin user with email $adminemail already exists."
 fi
 docker stop superproxy-mysql
+
+echogreen "building nginx image"
+cd "$project_dir/nginx"
+docker build -t superproxy-nginx . || die_with_error "Could not build nginx"
 
 
 
 cat <<EOL > "$project_dir/update.sh"
-docker stop superproxy-api superproxy-frontend superproxy-nginx
+cd $project_dir
+docker-compose down
 docker pull anticaptcha/superproxy-backend:latest
 docker pull anticaptcha/superproxy-frontend:latest
 docker-compose up -d
@@ -500,15 +556,15 @@ networks:
     driver: bridge
 EOL
 
-echo "starting via docker-compose"
+echogreen "starting via docker-compose"
 cd $project_dir && docker-compose up -d || die_with_error "Could not start services"
 
-echo "Waiting 15 seconds..."
+echogreen "Waiting 15 seconds..."
 sleep 15
 echo ""
-echo "Superproxy successfully started"
+echogreen "Superproxy successfully started"
 echo ""
-echo "To update the project run '$project_dir/update.sh'"
-echo "To stop the project run 'cd $project_dir && docker-compose down'"
-echo "To run the project again run 'cd $project_dir && docker-compose up -d'"
+echogreen "To update the project run '$project_dir/update.sh'"
+echogreen "To stop the project run 'cd $project_dir && docker-compose down'"
+echogreen "To run the project again run 'cd $project_dir && docker-compose up -d'"
 
