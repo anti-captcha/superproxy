@@ -16,6 +16,12 @@ You can use SuperProxy as a proxy service for your API requests or sell captcha 
 - Languages: English, Spanish, Brazil, Russian, Ukrainian, French, Italian, German, Polish, Dutch, Turkish, Indonesian, Chinese, Vietnamese, Japanese.
 - Support of your own SSL certificate.
 
+### Demo
+https://captchabro.com/  
+login: __support@captchabro.com__  
+password: __demo__  
+Note: Demo resets every 60 minutes. If the page is not opening, just wait 30 seconds and try again.
+
 ### Requirements
 - VPS or dedicated server with Ubuntu OS and open web ports (80 and 443), root access. 
 - Minimum 1Gb of RAM.
