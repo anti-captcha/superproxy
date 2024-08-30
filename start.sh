@@ -449,7 +449,7 @@ else
       echogreen "Waiting for MySQL container to be ready..."
       sleep 2
     done
-    sleep 5
+    sleep 15
 fi
 
 docker pull anticaptcha/superproxy-backend:latest
